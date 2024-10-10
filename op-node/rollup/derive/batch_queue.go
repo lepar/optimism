@@ -27,7 +27,12 @@ import (
 // It is internally responsible for making sure that batches with L1 inclusions block outside it's
 // working range are not considered or pruned.
 
+type ChannelFlusher interface {
+	FlushChannel()
+}
+
 type NextBatchProvider interface {
+	ChannelFlusher
 	Origin() eth.L1BlockRef
 	NextBatch(ctx context.Context) (Batch, error)
 }
@@ -65,6 +70,14 @@ func newBaseBatchStage(log log.Logger, cfg *rollup.Config, prev NextBatchProvide
 		config: cfg,
 		prev:   prev,
 		l2:     l2,
+	}
+}
+
+func (bs *baseBatchStage) Log() log.Logger {
+	if len(bs.l1Blocks) == 0 {
+		return bs.log.New("origin", bs.origin.ID())
+	} else {
+		return bs.log.New("origin", bs.origin.ID(), "epoch", bs.l1Blocks[0])
 	}
 }
 
@@ -145,12 +158,15 @@ func (bq *baseBatchStage) updateOrigins(parent eth.L2BlockRef) {
 	}
 
 	// If the epoch is advanced, update bq.l1Blocks
-	// Advancing epoch must be done after the pipeline successfully apply the entire span batch to the chain.
-	// Because the span batch can be reverted during processing the batch, then we must preserve existing l1Blocks
-	// to verify the epochs of the next candidate batch.
+	// Before Holocene, advancing the epoch must be done after the pipeline successfully applied the entire span batch to the chain.
+	// This is because the entire span batch can be reverted after finding an invalid batch.
+	// So we must preserve the existing l1Blocks to verify the epochs of the next candidate batch.
 	if len(bq.l1Blocks) > 0 && parent.L1Origin.Number > bq.l1Blocks[0].Number {
 		for i, l1Block := range bq.l1Blocks {
 			if parent.L1Origin.Number == l1Block.Number {
+				if bq.config.IsHolocene(bq.origin.Time) && i > 1 {
+					panic("updateOrigins: unexpected origin jump")
+				}
 				bq.l1Blocks = bq.l1Blocks[i:]
 				bq.log.Debug("Advancing internal L1 blocks", "next_epoch", bq.l1Blocks[0].ID(), "next_epoch_time", bq.l1Blocks[0].Time)
 				break
@@ -330,7 +346,7 @@ batchLoop:
 }
 
 // deriveNextEmptyBatch may derive an empty batch if the sequencing window is expired
-func (bq *baseBatchStage) deriveNextEmptyBatch(ctx context.Context, outOfData bool, parent eth.L2BlockRef) (Batch, error) {
+func (bq *baseBatchStage) deriveNextEmptyBatch(ctx context.Context, outOfData bool, parent eth.L2BlockRef) (*SingularBatch, error) {
 	epoch := bq.l1Blocks[0]
 	// If the current epoch is too old compared to the L1 block we are at,
 	// i.e. if the sequence window expired, we create empty batches for the current epoch

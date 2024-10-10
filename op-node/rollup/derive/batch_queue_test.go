@@ -32,6 +32,12 @@ func (f *fakeBatchQueueInput) Origin() eth.L1BlockRef {
 	return f.origin
 }
 
+func (f *fakeBatchQueueInput) FlushChannel() {
+	f.batches = nil
+	f.errors = nil
+	f.i = 0
+}
+
 func (f *fakeBatchQueueInput) NextBatch(ctx context.Context) (Batch, error) {
 	if f.i >= len(f.batches) {
 		return nil, io.EOF
@@ -482,7 +488,6 @@ func BatchQueueInvalidInternalAdvance(t *testing.T, batchType int) {
 	b, _, e = bq.NextBatch(context.Background(), safeHead)
 	require.ErrorIs(t, e, io.EOF)
 	require.Nil(t, b)
-
 }
 
 func BatchQueueMissing(t *testing.T, batchType int) {
