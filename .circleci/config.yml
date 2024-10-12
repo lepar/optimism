@@ -238,9 +238,8 @@ jobs:
           working_directory: cannon/mipsevm/tests/open_mips_tests
 
   contracts-bedrock-build:
-    docker:
-      - image: <<pipeline.parameters.ci_builder_image>>
-    resource_class: xlarge
+    machine: true
+    resource_class: ethereum-optimism/latitude-1
     parameters:
       skip_pattern:
         description: Glob pattern of tests to skip
@@ -249,16 +248,6 @@ jobs:
     steps:
       - checkout
       - install-contracts-dependencies
-      - restore_cache:
-          name: Restore Go modules cache
-          keys:
-            - gomod-contracts-build-{{ checksum "go.sum" }}
-            - gomod-contracts-build-
-      - restore_cache:
-          name: Restore Go build cache
-          keys:
-            - golang-build-cache-contracts-build-{{ checksum "go.sum" }}
-            - golang-build-cache-contracts-build-
       - run:
           name: Print forge version
           command: forge --version
@@ -276,16 +265,6 @@ jobs:
           name: Generate allocs
           command: |
             make devnet-allocs
-      - save_cache:
-          name: Save Go modules cache
-          key: gomod-contracts-build-{{ checksum "go.sum" }}
-          paths:
-            - "/go/pkg/mod"
-      - save_cache:
-          name: Save Go build cache
-          key: golang-build-cache-contracts-build-{{ checksum "go.sum" }}
-          paths:
-            - "/root/.cache/go-build"
       - persist_to_workspace:
           root: "."
           paths:
