@@ -963,7 +963,7 @@ jobs:
         description: Machine resource class
         type: string
         default: ethereum-optimism/latitude-1
-        machine: true
+    machine: true
     resource_class: <<parameters.resource_class>>
     steps:
       - checkout
