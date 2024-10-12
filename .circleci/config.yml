@@ -951,10 +951,6 @@ jobs:
       target:
         description: The make target to execute
         type: string
-      parallelism:
-        description: Number of parallel test runs
-        type: integer
-        default: 6
       notify:
         description: Whether to notify on failure
         type: boolean
@@ -963,35 +959,24 @@ jobs:
         description: Slack user or group to mention when notifying of failures
         type: string
         default: ""
-    docker:
-      - image: <<pipeline.parameters.ci_builder_image>>
-    resource_class: xlarge
-    parallelism: <<parameters.parallelism>>
+      resource_class:
+        description: Machine resource class
+        type: string
+        default: ethereum-optimism/latitude-1
+        machine: true
+    resource_class: <<parameters.resource_class>>
     steps:
       - checkout
-      - check-changed:
-          patterns: op-(.+),cannon,contracts-bedrock
-      - run:
-          name: prep results dir
-          command: mkdir -p /tmp/test-results
-      - restore_cache:
-          name: Restore Go modules cache
-          key: gomod-{{ checksum "go.sum" }}
-      - restore_cache:
-          name: Restore Go build cache
-          keys:
-            - golang-build-cache-e2e-{{ checksum "go.sum" }}
-            - golang-build-cache-e2e-
       - attach_workspace:
-          at: /tmp/workspace
+          at: ./tmp/workspace
       - run:
           name: Load devnet-allocs and artifacts
           command: |
             mkdir -p .devnet
-            cp -r /tmp/workspace/.devnet* .
-            cp -r /tmp/workspace/packages/contracts-bedrock/forge-artifacts packages/contracts-bedrock/forge-artifacts
-            cp /tmp/workspace/packages/contracts-bedrock/deploy-config/devnetL1.json packages/contracts-bedrock/deploy-config/devnetL1.json
-            cp -r /tmp/workspace/packages/contracts-bedrock/deployments/devnetL1 packages/contracts-bedrock/deployments/devnetL1
+            cp -r ./tmp/workspace/.devnet* .
+            cp -r ./tmp/workspace/packages/contracts-bedrock/forge-artifacts packages/contracts-bedrock/forge-artifacts
+            cp ./tmp/workspace/packages/contracts-bedrock/deploy-config/devnetL1.json packages/contracts-bedrock/deploy-config/devnetL1.json
+            cp -r ./tmp/workspace/packages/contracts-bedrock/deployments/devnetL1 packages/contracts-bedrock/deployments/devnetL1
       - run:
           name: print go's available MIPS targets
           command: go tool dist list | grep mips
@@ -999,7 +984,8 @@ jobs:
           name: run tests
           no_output_timeout: 20m
           command: |
-            mkdir -p /testlogs
+            mkdir -p ./tmp/testlogs
+            mkdir -p ./tmp/test-results
 
             # The below env var gets overridden when running make test-cannon, but we
             # need to explicitly set it here to prevent Cannon from running when we don't
@@ -1007,21 +993,16 @@ jobs:
             export OP_E2E_CANNON_ENABLED="false"
             # Note: We don't use circle CI test splits because we need to split by test name, not by package. There is an additional
             # constraint that gotestsum does not currently (nor likely will) accept files from different packages when building.
-            JUNIT_FILE=/tmp/test-results/<<parameters.module>>_<<parameters.target>>.xml JSON_LOG_FILE=/testlogs/test.log make <<parameters.target>>
+            JUNIT_FILE=../tmp/test-results/<<parameters.module>>_<<parameters.target>>.xml JSON_LOG_FILE=../tmp/testlogs/test.log make <<parameters.target>>
           working_directory: <<parameters.module>>
       - store_artifacts:
-          path: /testlogs
+          path: ./tmp/testlogs
           when: always
       - store_artifacts:
-          path: /tmp/test-results
+          path: ./tmp/test-results
           when: always
       - store_test_results:
-          path: /tmp/test-results
-      - save_cache:
-          name: Save Go build cache
-          key: golang-build-cache-e2e-{{ checksum "go.sum" }}
-          paths:
-            - "/root/.cache/go-build"
+          path: ./tmp/test-results
       - when:
           condition: "<<parameters.notify>>"
           steps:
@@ -1488,23 +1469,18 @@ workflows:
           name: op-e2e-HTTP-tests
           module: op-e2e
           target: test-http
-          parallelism: 8
           requires:
-            - go-mod-download
             - contracts-bedrock-build
       - go-e2e-test:
           name: op-e2e-action-tests
           module: op-e2e
           target: test-actions
-          parallelism: 1
           requires:
-            - go-mod-download
             - contracts-bedrock-build
       - go-e2e-test:
           name: op-e2e-fault-proof-tests
           module: op-e2e
           target: test-fault-proofs
-          parallelism: 4
           requires:
             - contracts-bedrock-build
             - cannon-prestate
@@ -1728,7 +1704,6 @@ workflows:
           name: op-e2e-cannon-tests
           module: op-e2e
           target: test-cannon
-          parallelism: 8
           notify: true
           mentions: "@proofs-team"
           requires:
